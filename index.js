@@ -15,16 +15,10 @@ const pooledDownload = async (connect, save, downloadList, maxConcurrency) => {
     connectionPool = [];
 
     await new Promise(async (resolve, reject) => {
-        let i = 0;
-        for (i = 0; i < maxConcurrency; i++) {
+        for (let i = 0; i < maxConcurrency; i++) {
             try {
                 const connection = await connect();
                 connectionPool.push({ connection, nDownloads: 0 });
-
-                (() => {
-                    const index = i;
-                    downloadWithConnection(connection, downloadList, resolve, reject, save, index)
-                })()
             } catch (e) {
                 break;
             }
@@ -33,12 +27,17 @@ const pooledDownload = async (connect, save, downloadList, maxConcurrency) => {
         if (connectionPool.length === 0) {
             reject(new Error('connection failed'));
         }
+
+        connectionPool.forEach((_, index) => {
+            downloadWithConnection(index, downloadList, resolve, reject, save)
+        })
     })
 
     closeConnections();
 }
 
-async function downloadWithConnection(connection, downloadList, resolve, reject, save, index) {
+async function downloadWithConnection(index, downloadList, resolve, reject, save) {
+    const connection = connectionPool[index].connection;
     connectionPool[index].status = 'downloading';
     const file = downloadList[indexNextFile];
 
@@ -61,12 +60,16 @@ async function downloadWithConnection(connection, downloadList, resolve, reject,
             } else {
                 let chosenConnectionIndex = -1;
                 for (let i = 0; i < connectionPool.length; i++) {
-                    if (connectionPool[i].status !== 'downloading' && (chosenConnectionIndex === -1 || connectionPool[i].nDownloads < connectionPool[chosenConnectionIndex].nDownloads)) {
+                    if (i !== index && connectionPool[i].status !== 'downloading' && (chosenConnectionIndex === -1 || connectionPool[i].nDownloads < connectionPool[chosenConnectionIndex].nDownloads)) {
                         chosenConnectionIndex = i;
                     }
                 }
 
-                downloadWithConnection(connectionPool[chosenConnectionIndex].connection, downloadList, resolve, reject, save, chosenConnectionIndex);
+                if (chosenConnectionIndex === -1) {
+                    chosenConnectionIndex = index;
+                }
+
+                downloadWithConnection(chosenConnectionIndex, downloadList, resolve, reject, save);
             }
 
         })
